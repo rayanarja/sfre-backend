@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Users {
+  user_id            Int              @id @default(autoincrement())
+  username           String           @unique
+  email              String           @unique
+  password           String
+  phone              String?
+  must_change_password Boolean        @default(false)
+  active_token       String?          @db.Text
+  role               UserRole
+  language           String           @default("ar")
+  theme              String           @default("light")
+  registration_date  DateTime         @default(now())
+  updated_at         DateTime         @updatedAt
+  subscriptions      Subscriptions[]
+  reports            Reports[]
+  lost_items         Lost_Items[]
+  issues             Issues[]
+  driver             Drivers?
+  family_members     Family_Members[]
+  trip_history       Trip_History[]
+}
+
+enum UserRole {
+  admin
+  driver
+  passenger
+}
+
+model Drivers {
+  driver_id     Int                  @id @default(autoincrement())
+  user_id       Int                  @unique
+  shift_time    String?
+  status        DriverStatus         @default(offline)
+  user          Users                @relation(fields: [user_id], references: [user_id])
+  shifts        Shifts[]
+  activity_logs Driver_Activity_Log[]
+}
+
+enum DriverStatus {
+  online
+  offline
+}
+
+model Buses {
+  bus_id                Int                @id @default(autoincrement())
+  plate_number          String             @unique
+  route_id              Int?
+  current_status        BusStatus          @default(inactive)
+  current_lat           Float?
+  current_lng           Float?
+  last_update           DateTime?
+  direction             String?            @default("outbound")
+  current_station_index Int?               @default(0)
+  route                 Routes?            @relation(fields: [route_id], references: [route_id])
+  shifts                Shifts[]
+  tracking_logs         Bus_Tracking_Log[]
+  reports               Reports[]
+  lost_items            Lost_Items[]
+  issues                Issues[]
+  trip_history          Trip_History[]
+}
+
+enum BusStatus {
+  active
+  inactive
+  maintenance
+  breakdown
+}
+
+model Routes {
+  route_id       Int        @id @default(autoincrement())
+  route_name     String
+  description    String?
+  pair_route_id  Int?
+  stations       Stations[]
+  buses          Buses[]
+}
+
+model Stations {
+  station_id    Int                @id @default(autoincrement())
+  route_id      Int
+  name          String
+  lat           Float?
+  lng           Float?
+  order_index   Int?
+  route         Routes             @relation(fields: [route_id], references: [route_id])
+  tracking_logs Bus_Tracking_Log[]
+}
+
+model Bus_Tracking_Log {
+  log_id     Int       @id @default(autoincrement())
+  bus_id     Int
+  station_id Int?
+  lat        Float
+  lng        Float
+  speed      Int?
+  timestamp  DateTime  @default(now())
+  bus        Buses     @relation(fields: [bus_id], references: [bus_id])
+  station    Stations? @relation(fields: [station_id], references: [station_id])
+}
+
+model Subscription_Plans {
+  plan_id       Int             @id @default(autoincrement())
+  name          String
+  trip_limit    Int
+  price         Float
+  max_users     Int             @default(1)
+  duration_days Int             @default(30)
+  is_active     Boolean         @default(true)
+  description   String?
+  created_at    DateTime        @default(now())
+  subscriptions Subscriptions[]
+}
+
+model Subscriptions {
+  subscription_id Int                @id @default(autoincrement())
+  user_id         Int
+  plan_id         Int
+  start_date      DateTime
+  end_date        DateTime
+  trips_used      Int                @default(0)
+  trips_limit     Int
+  max_users       Int                @default(1)
+  status          SubscriptionStatus @default(active)
+  created_at      DateTime           @default(now())
+  updated_at      DateTime           @updatedAt
+  user            Users              @relation(fields: [user_id], references: [user_id])
+  plan            Subscription_Plans @relation(fields: [plan_id], references: [plan_id])
+  family_members  Family_Members[]
+}
+
+enum SubscriptionStatus {
+  active
+  expired
+  cancelled
+}
+
+model Family_Members {
+  member_id       Int           @id @default(autoincrement())
+  subscription_id Int
+  user_id         Int
+  added_at        DateTime      @default(now())
+  subscription    Subscriptions @relation(fields: [subscription_id], references: [subscription_id])
+  user            Users         @relation(fields: [user_id], references: [user_id])
+
+  @@unique([subscription_id, user_id])
+}
+
+model Notifications {
+  notification_id Int      @id @default(autoincrement())
+  recipient_id    Int?
+  type            String   @default("general")
+  message         String
+  sender_type     String   @default("admin")
+  sender_id       Int?
+  is_read         Boolean  @default(false)
+  created_at      DateTime @default(now())
+}
+
+model Reports {
+  report_id   Int          @id @default(autoincrement())
+  user_id     Int
+  bus_id      Int
+  type        ReportType
+  description String
+  status      ReportStatus @default(pending)
+  created_at  DateTime     @default(now())
+  user        Users        @relation(fields: [user_id], references: [user_id])
+  bus         Buses        @relation(fields: [bus_id], references: [bus_id])
+}
+
+enum ReportStatus {
+  pending
+  reviewed
+  resolved
+}
+
+enum ReportType {
+  complaint
+  suggestion
+  incident
+}
+
+model Issues {
+  issue_id    Int         @id @default(autoincrement())
+  bus_id      Int
+  user_id     Int
+  type        String
+  description String
+  status      IssueStatus @default(pending)
+  created_at  DateTime    @default(now())
+  bus         Buses       @relation(fields: [bus_id], references: [bus_id])
+  user        Users       @relation(fields: [user_id], references: [user_id])
+}
+
+enum IssueStatus {
+  pending
+  in_progress
+  resolved
+}
+
+model Lost_Items {
+  item_id        Int          @id @default(autoincrement())
+  bus_id         Int
+  reporter_id    Int
+  reporter_type  ReporterType
+  description    String
+  found_location String?
+  image_url      String?
+  status         LostStatus   @default(lost)
+  report_date    DateTime     @default(now())
+  bus            Buses        @relation(fields: [bus_id], references: [bus_id])
+  reporter       Users        @relation(fields: [reporter_id], references: [user_id])
+}
+
+enum ReporterType {
+  passenger
+  driver
+}
+
+enum LostStatus {
+  pending
+  lost
+  found
+  returned
+}
+
+model Shifts {
+  shift_id     Int         @id @default(autoincrement())
+  driver_id    Int
+  bus_id       Int
+  shift_type   String
+  date         DateTime    @default(now())
+  start_time   String
+  end_time     String
+  status       ShiftStatus @default(scheduled)
+  actual_start DateTime?
+  actual_end   DateTime?
+  driver       Drivers     @relation(fields: [driver_id], references: [driver_id])
+  bus          Buses       @relation(fields: [bus_id], references: [bus_id])
+}
+
+enum ShiftStatus {
+  scheduled
+  active
+  paused
+  pending_stop
+  completed
+}
+
+model Trip_History {
+  trip_id      Int       @id @default(autoincrement())
+  user_id      Int
+  bus_id       Int
+  route_name   String?
+  from_station String?
+  to_station   String?
+  boarded_at   DateTime  @default(now())
+  exited_at    DateTime?
+  user         Users     @relation(fields: [user_id], references: [user_id])
+  bus          Buses     @relation(fields: [bus_id], references: [bus_id])
+}
+
+model POS_Points {
+  pos_id               Int                @id @default(autoincrement())
+  name                 String
+  owner_name           String
+  phone                String
+  email                String?            @unique
+  password             String
+  lat                  Float?
+  lng                  Float?
+  balance              Float              @default(0)
+  is_active            Boolean            @default(true)
+  must_change_password Boolean            @default(true)
+  created_at           DateTime           @default(now())
+  transactions         POS_Transactions[]
+}
+
+model POS_Transactions {
+  transaction_id  Int        @id @default(autoincrement())
+  pos_id          Int
+  type            String
+  amount          Float
+  description     String?
+  subscription_id Int?
+  created_at      DateTime   @default(now())
+  pos             POS_Points @relation(fields: [pos_id], references: [pos_id])
+}
+
+model Driver_Activity_Log {
+  log_id     Int      @id @default(autoincrement())
+  driver_id  Int
+  bus_id     Int?
+  action     String
+  timestamp  DateTime @default(now())
+  driver     Drivers  @relation(fields: [driver_id], references: [driver_id])
+}

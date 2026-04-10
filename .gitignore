@@ -1,0 +1,21 @@
+node_modules
+
+# Environment variables — NEVER commit secrets
+.env
+.env.local
+.env.production
+
+# Logs — production data doesn't belong in the repo
+logs/
+*.log
+
+# Prisma generated
+/generated/prisma
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
