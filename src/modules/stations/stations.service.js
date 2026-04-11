@@ -527,10 +527,10 @@ async function _planRouteByCoords(destName, passengerLat, passengerLng, destLat,
   console.log(`════════════════════════════════\n`);
 
   // ═══════════════════════════════════════════════
-  // المرحلة 4: اختيار ذكي — خيارات متنوعة بأوسمة
+  // المرحلة 4: خيارين واضحين — متل الشركات الكبيرة
   //
-  // متل Google Maps: كل خيار مميز بشي مختلف
-  // "الأسرع" / "أقل مشي" / "مباشر"
+  // 🔵 الأفضل كوقت = أقل وقت كلي (حتى لو مشي كتير)
+  // 🟠 الأفضل كراحة = أقل مشي كلي (حتى لو الوقت أطول)
   // ═══════════════════════════════════════════════
   const allCandidates = [...directPlans, ...transferPlans];
   if (allCandidates.length === 0) {
@@ -543,50 +543,34 @@ async function _planRouteByCoords(destName, passengerLat, passengerLng, destLat,
     plan.total_walking = (plan.walk_to_station || 0) + walkLegs.reduce((sum, l) => sum + (l.meters || 0), 0);
   }
 
-  // ═══ لاقي أفضل خيار بكل فئة ═══
-  const fastest = [...allCandidates].sort((a, b) => a.total_minutes - b.total_minutes)[0];
-  const leastWalking = [...allCandidates].sort((a, b) => a.total_walking - b.total_walking)[0];
-  const bestOverall = [...allCandidates].sort((a, b) => a.effort_score - b.effort_score)[0];
+  // ═══ الأفضل كوقت: أقل total_minutes ═══
+  const fastest = [...allCandidates].sort((a, b) => {
+    if (a.total_minutes !== b.total_minutes) return a.total_minutes - b.total_minutes;
+    return a.total_walking - b.total_walking; // تعادل؟ الأقل مشي
+  })[0];
+  fastest.tag = 'fastest';
+  fastest.tag_ar = 'الأفضل كوقت';
 
-  // ═══ اختار خيارات متنوعة (بدون تكرار) ═══
-  const selected = new Map();
+  // ═══ الأفضل كراحة: أقل total_walking ═══
+  const mostComfortable = [...allCandidates].sort((a, b) => {
+    if (a.total_walking !== b.total_walking) return a.total_walking - b.total_walking;
+    return a.total_minutes - b.total_minutes; // تعادل؟ الأسرع
+  })[0];
+  mostComfortable.tag = mostComfortable.tag || 'comfort';
+  mostComfortable.tag_ar = mostComfortable.tag_ar || 'الأفضل كراحة';
 
-  // الأفضل عموماً دايماً أولاً
-  bestOverall.tag = 'best';
-  bestOverall.tag_ar = 'الأفضل';
-  selected.set(JSON.stringify(bestOverall.legs?.map(l => l.from + l.to)), bestOverall);
-
-  // الأفضل كوقت — إذا مختلف عن الأفضل
-  if (fastest.total_minutes < bestOverall.total_minutes) {
-    fastest.tag = 'fastest';
-    fastest.tag_ar = 'الأفضل كوقت';
-    const k = JSON.stringify(fastest.legs?.map(l => l.from + l.to));
-    if (!selected.has(k)) selected.set(k, fastest);
+  // ═══ جمع النتائج — بدون تكرار ═══
+  const allPlans = [fastest];
+  
+  // أضف الراحة بس إذا مختلفة فعلاً عن الأسرع
+  const sameRoute = JSON.stringify(fastest.legs?.map(l => l.from + l.to)) === 
+                    JSON.stringify(mostComfortable.legs?.map(l => l.from + l.to));
+  if (!sameRoute) {
+    allPlans.push(mostComfortable);
   }
 
-  // الأفضل كراحة — إذا مختلف عن الباقي وبيوفر مشي فعلي
-  if (leastWalking.total_walking < bestOverall.total_walking - 100) {
-    leastWalking.tag = leastWalking.tag || 'comfort';
-    leastWalking.tag_ar = leastWalking.tag_ar || 'الأفضل كراحة';
-    const k = JSON.stringify(leastWalking.legs?.map(l => l.from + l.to));
-    if (!selected.has(k)) selected.set(k, leastWalking);
-  }
-
-  // إذا لسا أقل من 3 — أضف خيارات إضافية (الأقل جهد أولاً)
-  if (selected.size < 3) {
-    const sortedByEffort = [...allCandidates].sort((a, b) => a.effort_score - b.effort_score);
-    for (const plan of sortedByEffort) {
-      if (selected.size >= 3) break;
-      const k = JSON.stringify(plan.legs?.map(l => l.from + l.to));
-      if (!selected.has(k)) {
-        plan.tag = plan.tag || 'alternative';
-        plan.tag_ar = plan.tag_ar || 'بديل';
-        selected.set(k, plan);
-      }
-    }
-  }
-
-  const allPlans = [...selected.values()].slice(0, 3);
+  console.log(`── النتيجة النهائية: ${allPlans.length} خيار`);
+  allPlans.forEach(p => console.log(`   [${p.tag_ar}] ${p.type_ar}: ${p.total_minutes} دقيقة, مشي ${p.total_walking}م`));
 
   return {
     plans: allPlans,
