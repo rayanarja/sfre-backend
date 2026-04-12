@@ -9,7 +9,7 @@ const { globalLimiter } = require('./middlewares/rateLimiter');
 const errorMiddleware = require('./middlewares/error.middleware');
 
 const app = express();
-
+app.set('trust proxy', 1);
 // ═══════════════════ Security ═══════════════════
 app.use(helmet());                 // HTTP security headers
 app.use(cors());                   // Cross-origin
