@@ -3,7 +3,7 @@ const { getDistance } = require('../../../utils/geo');
 const { geocodePlace, hybridSuggestions: geoHybrid } = require('../../../utils/geocoding');
 
 // ═══════════════════════════════════════
-// 1. الدوال الأساسية (CRUD) — بأسماء مطابقة للروتس
+// 1. الدوال الأساسية (CRUD)
 // ═══════════════════════════════════════
 
 const getAll = async (req, res, next) => {
@@ -28,7 +28,7 @@ const create = async (req, res, next) => {
   try {
     const { name, route_id, lat, lng, order_index } = req.body;
     const station = await prisma.stations.create({
-       {
+      data: {  // ✅ أضفنا data: هنا
         name,
         route_id: parseInt(route_id),
         lat: lat ? parseFloat(lat) : null,
@@ -53,7 +53,7 @@ const update = async (req, res, next) => {
     
     const station = await prisma.stations.update({
       where: { station_id: parseInt(req.params.id) },
-       updateData,
+      data: updateData,  // ✅ أضفنا data: هنا
       include: { route: true },
     });
     res.json(station);
@@ -68,7 +68,7 @@ const remove = async (req, res, next) => {
 };
 
 // ═══════════════════════════════════════
-// 2. البحث والاقتراحات — بأسماء مطابقة للروتس
+// 2. البحث والاقتراحات
 // ═══════════════════════════════════════
 
 const searchDestination = async (req, res, next) => {
@@ -210,7 +210,7 @@ const hybridSuggestions = async (req, res, next) => {
 };
 
 // ═══════════════════════════════════════
-// 3. تخطيط المسار — بأسماء مطابقة للروتس
+// 3. تخطيط المسار
 // ═══════════════════════════════════════
 
 const planRoute = async (req, res, next) => {
@@ -237,7 +237,7 @@ const planRouteV2 = async (req, res, next) => {
 };
 
 // ═══════════════════════════════════════
-// 4. الدالة الداخلية لتخطيط المسار (مشان ما نكرر الكود)
+// 4. الدالة الداخلية لتخطيط المسار
 // ═══════════════════════════════════════
 
 async function _planRouteByCoords(destName, passengerLat, passengerLng, destLat, destLng, isLegacy) {
@@ -343,7 +343,7 @@ function _calcBusEta(buses, stationIndex, minPerStation) {
 }
 
 // ═══════════════════════════════════════
-// ✅ التصدير — بأسماء مطابقة للروتس تماماً
+// ✅ التصدير
 // ═══════════════════════════════════════
 module.exports = {
   getAll,
