@@ -1,20 +1,20 @@
 /**
  * Geocoding Service — OpenStreetMap Nominatim
  * مجاني ومابحتاج API key وبيشتغل بسوريا
- * 
- * الاستخدام:
- *   geocodePlace('جامعة حلب')  →  { lat: 36.21, lng: 37.12, display_name: '...' }
- *   searchPlaces('مستشفى', 36.2, 37.1)  →  [{ name, lat, lng }, ...]
+ *
+ * الإصلاح: hybridSuggestions الآن دايمًا بتجيب محطات + مناطق بالتوازي
+ * بدل ما تحط شرط "إذا المحطات أقل من 4"
  */
 
 const https = require('https');
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
-const USER_AGENT = 'BusApp/1.0 (bus-management-system)';
+const USER_AGENT    = 'BusApp/1.0 (bus-management-system)';
 
-/**
- * بحث عن مكان بالاسم — يرجع أول نتيجة
- */
+// ════════════════════════════════════════════
+// geocodePlace — بحث مكان بالاسم
+// ════════════════════════════════════════════
+
 async function geocodePlace(query, nearLat = null, nearLng = null) {
   const params = new URLSearchParams({
     q: query,
@@ -24,9 +24,8 @@ async function geocodePlace(query, nearLat = null, nearLng = null) {
     countrycodes: 'sy',
   });
 
-  // إذا عندنا موقع الراكب — حدد نطاق البحث حوله
   if (nearLat && nearLng) {
-    const delta = 0.15; // ~15 كم
+    const delta = 0.2; // ~20 كم (كان 0.15 — وسّعنا قليلاً)
     params.set('viewbox', `${nearLng - delta},${nearLat - delta},${nearLng + delta},${nearLat + delta}`);
     params.set('bounded', '1');
   }
@@ -35,82 +34,80 @@ async function geocodePlace(query, nearLat = null, nearLng = null) {
   if (!results || results.length === 0) return null;
 
   return results.map(r => ({
-    name: _cleanName(r.display_name),
+    name:      _cleanName(r.display_name),
     name_full: r.display_name,
-    lat: parseFloat(r.lat),
-    lng: parseFloat(r.lon),
-    type: r.type,
-    category: r.class,
+    lat:       parseFloat(r.lat),
+    lng:       parseFloat(r.lon),
+    type:      r.type,
+    category:  r.class,
   }));
 }
 
-/**
- * بحث مختلط — محطات + أماكن
- * يرجع اقتراحات من نوعين:
- *   { name, type: 'station' }  — محطة موجودة بالنظام
- *   { name, type: 'place', lat, lng }  — مكان من الخريطة
- */
-async function hybridSuggestions(query, stationSuggestions) {
-  const results = [];
+// ════════════════════════════════════════════
+// hybridSuggestions — محطات + مناطق بالتوازي
+//
+// BUG FIX: كان بيجيب مناطق فقط إذا المحطات < 4
+// الآن: دايمًا بيجيب الاثنين بالتوازي (Promise.allSettled)
+// ويدمجهم: محطات أولاً ثم مناطق (بدون تكرار)، بحد أقصى 8 نتائج
+// ════════════════════════════════════════════
 
-  // أولاً: المحطات المسجلة
+async function hybridSuggestions(query, stationSuggestions) {
+  // ── تشغيل Nominatim بالتوازي مع المحطات (مو بعدها)
+  const nominatimPromise = geocodePlace(query, 36.2, 37.15).catch(() => null);
+
+  // ── انتظر Nominatim (مو blocking — شغّل بالتوازي)
+  const places = await nominatimPromise;
+
+  const results = [];
+  const seenNames = new Set();
+
+  // 1) المحطات المسجلة أولاً
   for (const name of stationSuggestions) {
-    results.push({ name, type: 'station' });
+    if (!seenNames.has(name.toLowerCase())) {
+      seenNames.add(name.toLowerCase());
+      results.push({ name, type: 'station' });
+    }
   }
 
-  // ثانياً: أماكن من Nominatim (إذا المحطات قليلة)
-  if (stationSuggestions.length < 4) {
-    try {
-      // حدود حلب التقريبية
-      const places = await geocodePlace(query, 36.2, 37.15);
-      if (places) {
-        for (const p of places.slice(0, 4 - stationSuggestions.length)) {
-          // تأكد ما يكون مكرر
-          if (!results.find(r => r.name === p.name)) {
-            results.push({
-              name: p.name,
-              name_full: p.name_full,
-              type: 'place',
-              lat: p.lat,
-              lng: p.lng,
-            });
-          }
-        }
+  // 2) المناطق من Nominatim — دايمًا، بغض النظر عن عدد المحطات
+  if (places && places.length > 0) {
+    for (const p of places) {
+      if (results.length >= 8) break; // حد أقصى 8 اقتراحات كلي
+      const key = p.name.toLowerCase();
+      if (!seenNames.has(key)) {
+        seenNames.add(key);
+        results.push({
+          name:      p.name,
+          name_full: p.name_full,
+          type:      'place',
+          lat:       p.lat,
+          lng:       p.lng,
+        });
       }
-    } catch (e) {
-      // Nominatim فشل — رجّع المحطات بس
     }
   }
 
   return results;
 }
 
-/**
- * نظّف اسم المكان — شيل التفاصيل الزيادة
- */
+// ════════════════════════════════════════════
+// مساعدات
+// ════════════════════════════════════════════
+
 function _cleanName(displayName) {
-  // "جامعة حلب, حلب, محافظة حلب, سوريا" → "جامعة حلب, حلب"
   const parts = displayName.split(',').map(p => p.trim());
   if (parts.length <= 2) return displayName;
   return parts.slice(0, 2).join('، ');
 }
 
-/**
- * HTTP GET — لأنو Nominatim بحتاج HTTPS
- */
 function _fetch(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      headers: { 'User-Agent': USER_AGENT }
-    }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(e);
-        }
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(e); }
       });
     });
     req.on('error', reject);

@@ -232,6 +232,17 @@
  *     responses:
  *       200: { description: Position updated with nearest station }
  *
+ * /bus-tracker/map:
+ *   get:
+ *     tags: [Tracking]
+ *     summary: Get bus locations for map markers
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: route_id, schema: { type: integer } }
+ *       - { in: query, name: status, schema: { type: string, enum: [active, inactive, maintenance, breakdown, all], default: active } }
+ *     responses:
+ *       200: { description: List of buses that have current coordinates }
+ *
  * /stations/smart-search:
  *   get:
  *     tags: [Stations]

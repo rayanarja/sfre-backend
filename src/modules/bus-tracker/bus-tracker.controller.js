@@ -15,6 +15,13 @@ const findBuses = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const getMapBuses = async (req, res, next) => {
+  try {
+    const result = await trackerService.getMapBuses(req.query);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
 const getStations = async (req, res, next) => {
   try {
     const result = await trackerService.getRouteStations(req.params.route_id);
@@ -22,4 +29,4 @@ const getStations = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { updatePosition, findBuses, getStations };
+module.exports = { updatePosition, findBuses, getMapBuses, getStations };

@@ -234,6 +234,66 @@ const findBusesForPassenger = async (route_id, passenger_station_index, destinat
   };
 };
 
+// Buses with live coordinates for map markers
+const getMapBuses = async (query = {}) => {
+  const { route_id, status = 'active' } = query;
+  const allowedStatuses = ['active', 'inactive', 'maintenance', 'breakdown', 'all'];
+
+  if (!allowedStatuses.includes(status)) {
+    throw { status: 400, message: 'status غير صالح' };
+  }
+
+  const routeId = route_id ? parseInt(route_id) : null;
+  if (route_id && Number.isNaN(routeId)) {
+    throw { status: 400, message: 'route_id غير صالح' };
+  }
+
+  const where = {
+    current_lat: { not: null },
+    current_lng: { not: null },
+  };
+
+  if (status !== 'all') where.current_status = status;
+  if (routeId) where.route_id = routeId;
+
+  const buses = await prisma.buses.findMany({
+    where,
+    select: {
+      bus_id: true,
+      plate_number: true,
+      current_status: true,
+      current_lat: true,
+      current_lng: true,
+      last_update: true,
+      direction: true,
+      current_station_index: true,
+      route: {
+        select: {
+          route_id: true,
+          route_name: true,
+        },
+      },
+    },
+    orderBy: { last_update: 'desc' },
+  });
+
+  return {
+    count: buses.length,
+    buses: buses.map(bus => ({
+      bus_id: bus.bus_id,
+      plate_number: bus.plate_number,
+      lat: bus.current_lat,
+      lng: bus.current_lng,
+      status: bus.current_status,
+      last_update: bus.last_update,
+      direction: bus.direction,
+      current_station_index: bus.current_station_index,
+      route_id: bus.route?.route_id || null,
+      route_name: bus.route?.route_name || null,
+    })),
+  };
+};
+
 // جلب مواقف خط معين
 const getRouteStations = async (route_id) => {
   return await prisma.stations.findMany({
@@ -242,4 +302,4 @@ const getRouteStations = async (route_id) => {
   });
 };
 
-module.exports = { updateBusPosition, findBusesForPassenger, getRouteStations };
+module.exports = { updateBusPosition, findBusesForPassenger, getMapBuses, getRouteStations };
