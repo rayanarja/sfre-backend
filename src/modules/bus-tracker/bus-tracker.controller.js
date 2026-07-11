@@ -9,8 +9,8 @@ const updatePosition = async (req, res, next) => {
 
 const findBuses = async (req, res, next) => {
   try {
-    const { route_id, passenger_station_index, destination_station_index } = req.query;
-    const result = await trackerService.findBusesForPassenger(route_id, passenger_station_index, destination_station_index);
+    const { route_id, passenger_station_index, destination_station_index, direction } = req.query;
+    const result = await trackerService.findBusesForPassenger(route_id, passenger_station_index, destination_station_index, direction);
     res.json(result);
   } catch (err) { next(err); }
 };
@@ -24,7 +24,7 @@ const getMapBuses = async (req, res, next) => {
 
 const getStations = async (req, res, next) => {
   try {
-    const result = await trackerService.getRouteStations(req.params.route_id);
+    const result = await trackerService.getRouteStations(req.params.route_id, req.query.direction);
     res.json(result);
   } catch (err) { next(err); }
 };

@@ -45,21 +45,28 @@ const createRoute = Joi.object({
     'any.required': 'اسم الخط مطلوب',
   }),
   description: Joi.string().max(500).allow(null, ''),
-  pair_route_id: Joi.number().integer().allow(null),
 });
 
-const linkRoutes = Joi.object({
-  route1_id: Joi.number().integer().required().messages({ 'any.required': 'خط الذهاب مطلوب' }),
-  route2_id: Joi.number().integer().required().messages({ 'any.required': 'خط الإياب مطلوب' }),
+const updateRoute = Joi.object({
+  route_name: Joi.string().min(2).max(100),
+  description: Joi.string().max(500).allow(null, ''),
+}).min(1);
+
+const routeStationItem = Joi.object({
+  station_id: Joi.number().integer().required(),
+  station_order: Joi.number().integer().min(1).required(),
+});
+
+const saveRouteStations = Joi.object({
+  outbound: Joi.array().items(routeStationItem).default([]),
+  inbound: Joi.array().items(routeStationItem).default([]),
 });
 
 // ═══════════════════ Stations ═══════════════════
 const createStation = Joi.object({
   name: Joi.string().min(2).max(100).required(),
-  route_id: Joi.number().integer().required(),
   lat: Joi.number().min(-90).max(90).allow(null),
   lng: Joi.number().min(-180).max(180).allow(null),
-  order_index: Joi.number().integer().min(0).allow(null),
 });
 
 // ═══════════════════ Buses ═══════════════════
@@ -68,6 +75,8 @@ const createBus = Joi.object({
     'any.required': 'رقم اللوحة مطلوب',
   }),
   route_id: Joi.number().integer().allow(null),
+  direction: Joi.string().valid('outbound', 'inbound').default('outbound'),
+  current_station_index: Joi.number().integer().min(0).default(0),
 });
 
 const updateBus = Joi.object({
@@ -77,6 +86,7 @@ const updateBus = Joi.object({
   current_lat: Joi.number().allow(null),
   current_lng: Joi.number().allow(null),
   direction: Joi.string().valid('outbound', 'inbound').allow(null),
+  current_station_index: Joi.number().integer().min(0).allow(null),
 });
 
 // ═══════════════════ Drivers ═══════════════════
@@ -221,7 +231,7 @@ const updatePosition = Joi.object({
 
 module.exports = {
   auth: { register, login, loginPhone, changePassword },
-  routes: { createRoute, linkRoutes },
+  routes: { createRoute, updateRoute, saveRouteStations },
   stations: { createStation },
   buses: { createBus, updateBus },
   drivers: { createDriver },

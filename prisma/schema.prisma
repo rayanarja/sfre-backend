@@ -59,7 +59,7 @@ model Buses {
   current_lng           Float?
   last_update           DateTime?
   direction             String?            @default("outbound")
-  current_station_index Int?               @default(0)
+  current_station_index Int?               @default(1)
   route                 Routes?            @relation(fields: [route_id], references: [route_id])
   shifts                Shifts[]
   tracking_logs         Bus_Tracking_Log[]
@@ -77,23 +77,35 @@ enum BusStatus {
 }
 
 model Routes {
-  route_id       Int        @id @default(autoincrement())
+  route_id       Int              @id @default(autoincrement())
   route_name     String
   description    String?
-  pair_route_id  Int?
-  stations       Stations[]
+  route_stations Route_Stations[]
   buses          Buses[]
 }
 
 model Stations {
   station_id    Int                @id @default(autoincrement())
-  route_id      Int
   name          String
   lat           Float?
   lng           Float?
-  order_index   Int?
-  route         Routes             @relation(fields: [route_id], references: [route_id])
+  route_stations Route_Stations[]
   tracking_logs Bus_Tracking_Log[]
+}
+
+model Route_Stations {
+  id            Int      @id @default(autoincrement())
+  route_id      Int
+  station_id    Int
+  direction     String
+  station_order Int
+  route         Routes   @relation(fields: [route_id], references: [route_id], onDelete: Cascade)
+  station       Stations @relation(fields: [station_id], references: [station_id], onDelete: Cascade)
+
+  @@unique([route_id, direction, station_order])
+  @@index([route_id, direction])
+  @@index([station_id])
+  @@map("route_stations")
 }
 
 model Bus_Tracking_Log {

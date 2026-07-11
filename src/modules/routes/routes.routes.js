@@ -9,9 +9,8 @@ const s = require('../../validations/schemas').routes;
 router.get('/', auth, controller.getAll);
 router.get('/:id', auth, controller.getOne);
 router.post('/', auth, authorize('admin'), validate(s.createRoute), controller.create);
-router.put('/:id', auth, authorize('admin'), controller.update);
+router.put('/:id', auth, authorize('admin'), validate(s.updateRoute), controller.update);
+router.put('/:id/stations', auth, authorize('admin'), validate(s.saveRouteStations), controller.saveStations);
 router.delete('/:id', auth, authorize('admin'), controller.remove);
-router.post('/link', auth, authorize('admin'), validate(s.linkRoutes), controller.linkRoutes);
-router.delete('/:id/unlink', auth, authorize('admin'), controller.unlinkRoutes);
 
 module.exports = router;

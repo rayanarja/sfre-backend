@@ -102,24 +102,6 @@
  *     responses:
  *       200: { description: Created route }
  *
- * /routes/link:
- *   post:
- *     tags: [Routes]
- *     summary: Link two routes (outbound ↔ inbound)
- *     security: [{ bearerAuth: [] }]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [route1_id, route2_id]
- *             properties:
- *               route1_id: { type: integer, description: "Outbound route" }
- *               route2_id: { type: integer, description: "Inbound route" }
- *     responses:
- *       200: { description: Routes linked }
- *
  * /drivers:
  *   get:
  *     tags: [Drivers]

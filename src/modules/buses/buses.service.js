@@ -107,9 +107,16 @@ const getNearbyBuses = async (station_id) => {
   });
   if (!station) throw { status: 404, message: 'الموقف غير موجود' };
 
+  const routeStations = await prisma.route_Stations.findMany({
+    where: { station_id: station.station_id },
+    select: { route_id: true },
+    distinct: ['route_id'],
+  });
+  const routeIds = routeStations.map(item => item.route_id);
+
   return await prisma.buses.findMany({
     where: {
-      route_id: station.route_id,
+      route_id: { in: routeIds },
       current_status: 'active'
     },
     include: { route: true }
