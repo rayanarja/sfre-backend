@@ -31,7 +31,6 @@ const groupRouteStationsByDirection = (routeStations = []) => {
 
 const getAllStations = async () => {
   return await prisma.stations.findMany({
-    include: { route_stations: { include: { route: true } } },
     orderBy: { station_id: 'asc' },
   });
 };
@@ -39,7 +38,6 @@ const getAllStations = async () => {
 const getStationById = async (id) => {
   const station = await prisma.stations.findUnique({
     where: { station_id: parseInt(id) },
-    include: { route_stations: { include: { route: true } } },
   });
   if (!station) throw { status: 404, message: 'Station not found' };
   return station;
