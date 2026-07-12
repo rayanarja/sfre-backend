@@ -32,4 +32,4 @@ FROM (
   WHERE s.`route_id` IS NOT NULL
 ) migrated;
 
-ALTER TABLE `Routes` DROP COLUMN `pair_route_id`;
+ALTER TABLE `Routes` DROP COLUMN IF EXISTS `pair_route_id`;

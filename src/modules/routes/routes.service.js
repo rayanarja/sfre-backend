@@ -64,10 +64,16 @@ const createRoute = async (data) => {
       route_name: data.route_name,
       description: data.description || null,
     },
-    include: routeInclude,
   });
 
-  return formatRoute(route);
+  return {
+    route_id: route.route_id,
+    route_name: route.route_name,
+    description: route.description,
+    outbound: [],
+    inbound: [],
+    buses: [],
+  };
 };
 
 const updateRoute = async (id, data) => {
