@@ -67,6 +67,14 @@ const createStation = Joi.object({
   name: Joi.string().min(2).max(100).required(),
   lat: Joi.number().min(-90).max(90).allow(null),
   lng: Joi.number().min(-180).max(180).allow(null),
+  route_id: Joi.number().integer().positive().required(),
+});
+
+const updateStation = Joi.object({
+  name: Joi.string().min(2).max(100).required(),
+  lat: Joi.number().min(-90).max(90).allow(null),
+  lng: Joi.number().min(-180).max(180).allow(null),
+  route_id: Joi.number().integer().positive().required(),
 });
 
 // ═══════════════════ Buses ═══════════════════
@@ -232,7 +240,7 @@ const updatePosition = Joi.object({
 module.exports = {
   auth: { register, login, loginPhone, changePassword },
   routes: { createRoute, updateRoute, saveRouteStations },
-  stations: { createStation },
+  stations: { createStation, updateStation },
   buses: { createBus, updateBus },
   drivers: { createDriver },
   shifts: { createShift },

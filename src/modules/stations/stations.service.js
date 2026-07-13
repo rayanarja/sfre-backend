@@ -29,39 +29,143 @@ const groupRouteStationsByDirection = (routeStations = []) => {
   return grouped;
 };
 
+const stationInclude = {
+  route_stations: {
+    include: {
+      route: {
+        select: { route_id: true, route_name: true },
+      },
+    },
+    orderBy: { id: 'asc' },
+  },
+};
+
+// The stations endpoints expose one route for the dashboard form. Route ordering
+// and additional route associations remain managed through /api/routes/:id/stations.
+const formatStation = (station) => {
+  const routeStation = station.route_stations?.[0];
+  const { route_stations, ...data } = station;
+
+  return {
+    ...data,
+    route_id: routeStation?.route_id ?? null,
+    route_name: routeStation?.route?.route_name ?? null,
+  };
+};
+
+const getNextStationOrder = async (tx, routeId, direction = 'outbound') => {
+  const lastStation = await tx.route_Stations.findFirst({
+    where: { route_id: routeId, direction },
+    orderBy: { station_order: 'desc' },
+    select: { station_order: true },
+  });
+
+  return (lastStation?.station_order ?? 0) + 1;
+};
+
+const ensureRouteExists = async (tx, routeId) => {
+  const route = await tx.routes.findUnique({
+    where: { route_id: routeId },
+    select: { route_id: true },
+  });
+  if (!route) throw { status: 400, message: 'Route not found' };
+};
+
 const getAllStations = async () => {
-  return await prisma.stations.findMany({
+  const stations = await prisma.stations.findMany({
+    include: stationInclude,
     orderBy: { station_id: 'asc' },
   });
+  return stations.map(formatStation);
 };
 
 const getStationById = async (id) => {
   const station = await prisma.stations.findUnique({
     where: { station_id: parseInt(id) },
+    include: stationInclude,
   });
   if (!station) throw { status: 404, message: 'Station not found' };
-  return station;
+  return formatStation(station);
 };
 
 const createStation = async (data) => {
-  return await prisma.stations.create({
-    data: {
-      name: data.name,
-      lat: data.lat !== undefined && data.lat !== null && data.lat !== '' ? parseFloat(data.lat) : null,
-      lng: data.lng !== undefined && data.lng !== null && data.lng !== '' ? parseFloat(data.lng) : null,
-    },
+  const routeId = Number(data.route_id);
+
+  return await prisma.$transaction(async (tx) => {
+    await ensureRouteExists(tx, routeId);
+    const stationOrder = await getNextStationOrder(tx, routeId);
+    const station = await tx.stations.create({
+      data: {
+        name: data.name,
+        lat: data.lat !== undefined && data.lat !== null && data.lat !== '' ? Number(data.lat) : null,
+        lng: data.lng !== undefined && data.lng !== null && data.lng !== '' ? Number(data.lng) : null,
+      },
+    });
+
+    await tx.route_Stations.create({
+      data: {
+        route_id: routeId,
+        station_id: station.station_id,
+        direction: 'outbound',
+        station_order: stationOrder,
+      },
+    });
+
+    const stationWithRoute = await tx.stations.findUnique({
+      where: { station_id: station.station_id },
+      include: stationInclude,
+    });
+    return formatStation(stationWithRoute);
   });
 };
 
 const updateStation = async (id, data) => {
+  const stationId = Number(id);
+  const routeId = Number(data.route_id);
   const updateData = {};
   if (data.name !== undefined) updateData.name = data.name;
-  if (data.lat !== undefined) updateData.lat = data.lat !== null && data.lat !== '' ? parseFloat(data.lat) : null;
-  if (data.lng !== undefined) updateData.lng = data.lng !== null && data.lng !== '' ? parseFloat(data.lng) : null;
+  if (data.lat !== undefined) updateData.lat = data.lat !== null && data.lat !== '' ? Number(data.lat) : null;
+  if (data.lng !== undefined) updateData.lng = data.lng !== null && data.lng !== '' ? Number(data.lng) : null;
 
-  return await prisma.stations.update({
-    where: { station_id: parseInt(id) },
-    data: updateData,
+  return await prisma.$transaction(async (tx) => {
+    await ensureRouteExists(tx, routeId);
+
+    const existingStation = await tx.stations.findUnique({
+      where: { station_id: stationId },
+      select: { station_id: true },
+    });
+    if (!existingStation) throw { status: 404, message: 'Station not found' };
+
+    const currentRouteStation = await tx.route_Stations.findFirst({
+      where: { station_id: stationId },
+      orderBy: { id: 'asc' },
+    });
+
+    if (!currentRouteStation) {
+      const stationOrder = await getNextStationOrder(tx, routeId);
+      await tx.route_Stations.create({
+        data: {
+          route_id: routeId,
+          station_id: stationId,
+          direction: 'outbound',
+          station_order: stationOrder,
+        },
+      });
+    } else if (currentRouteStation.route_id !== routeId) {
+      const stationOrder = await getNextStationOrder(tx, routeId, currentRouteStation.direction);
+      await tx.route_Stations.update({
+        where: { id: currentRouteStation.id },
+        data: { route_id: routeId, station_order: stationOrder },
+      });
+    }
+
+    const station = await tx.stations.update({
+      where: { station_id: stationId },
+      data: updateData,
+      include: stationInclude,
+    });
+
+    return formatStation(station);
   });
 };
 

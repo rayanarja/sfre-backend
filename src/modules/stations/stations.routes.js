@@ -15,7 +15,7 @@ router.get('/search', auth, controller.searchDestination);
 router.get('/', auth, controller.getAll);
 router.get('/:id', auth, controller.getOne);
 router.post('/', auth, authorize('admin'), validate(s.createStation), controller.create);
-router.put('/:id', auth, authorize('admin'), controller.update);
+router.put('/:id', auth, authorize('admin'), validate(s.updateStation), controller.update);
 router.delete('/:id', auth, authorize('admin'), controller.remove);
 
 module.exports = router;
