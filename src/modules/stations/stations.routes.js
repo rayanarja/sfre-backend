@@ -8,6 +8,7 @@ const s = require('../../validations/schemas').stations;
 
 router.get('/suggestions', controller.suggestions);
 router.get('/hybrid-suggestions', controller.hybridSuggestions);
+router.post('/hybrid-suggestions', auth, controller.hybridSuggestions);
 router.get('/smart-search', auth, controller.smartSearch);
 router.get('/plan-route', auth, controller.planRoute);
 router.get('/plan-route-v2', auth, controller.planRouteV2);

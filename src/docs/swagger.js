@@ -237,6 +237,35 @@
  *     responses:
  *       200: { description: Routes with ETA and nearest buses }
  *
+ * /stations/hybrid-suggestions:
+ *   post:
+ *     tags: [Stations]
+ *     summary: Find direct, one-transfer, and last-mile transit journeys
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [user_location, destination_coords]
+ *             properties:
+ *               user_location:
+ *                 type: object
+ *                 required: [lat, lng]
+ *                 properties:
+ *                   lat: { type: number, example: 36.2021 }
+ *                   lng: { type: number, example: 37.1343 }
+ *               destination_coords:
+ *                 type: object
+ *                 required: [lat, lng]
+ *                 properties:
+ *                   lat: { type: number, example: 36.2154 }
+ *                   lng: { type: number, example: 37.1612 }
+ *     responses:
+ *       200: { description: Ordered array of multimodal journey suggestions }
+ *       400: { description: Invalid or incomplete coordinates }
+ *
  * /notifications/user/{user_id}:
  *   get:
  *     tags: [Notifications]

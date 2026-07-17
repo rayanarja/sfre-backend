@@ -73,9 +73,29 @@ const suggestions = async (req, res, next) => {
 
 const hybridSuggestions = async (req, res, next) => {
   try {
-    const { q } = req.query;
-    if (!q) return res.json([]);
-    const results = await stationsService.hybridSuggestions(q);
+    const input = (req.method === 'POST' ? req.body : req.query) || {};
+    const userLocation = input.user_location || {
+      lat: input.user_lat ?? input.lat,
+      lng: input.user_lng ?? input.lng,
+    };
+    const destinationCoords = input.destination_coords || {
+      lat: input.dest_lat,
+      lng: input.dest_lng,
+    };
+    const hasCoordinates = [
+      userLocation.lat ?? userLocation.latitude,
+      userLocation.lng ?? userLocation.longitude,
+      destinationCoords.lat ?? destinationCoords.latitude,
+      destinationCoords.lng ?? destinationCoords.longitude,
+    ].some(value => value !== undefined && value !== null && value !== '');
+
+    // Backward compatibility: the original endpoint is also used by destination autocomplete.
+    if (!hasCoordinates) {
+      if (!input.q) return res.json([]);
+      return res.json(await stationsService.getPlaceSuggestions(input.q));
+    }
+
+    const results = await stationsService.getHybridSuggestions(userLocation, destinationCoords);
     res.json(results);
   } catch (err) { next(err); }
 };

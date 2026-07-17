@@ -1,9 +1,9 @@
 const prisma = require('../../config/database');
 const { getDistance } = require('../../utils/geo');
 const { geocodePlace, hybridSuggestions: geoHybrid } = require('../../utils/geocoding');
+const { buildHybridSuggestions } = require('./hybrid-routing.service');
 
 const DIRECTIONS = ['outbound', 'inbound'];
-const WALK_SPEED = 70;
 const MIN_PER_STATION = 3;
 
 const directionAr = (direction) => direction === 'outbound' ? 'ذهاب' : 'إياب';
@@ -275,7 +275,7 @@ async function getStationSuggestions(query) {
   return stations.map(station => station.name);
 }
 
-async function hybridSuggestions(query) {
+async function getPlaceSuggestions(query) {
   const stationNames = await getStationSuggestions(query);
   try {
     return await geoHybrid(query, stationNames);
@@ -283,6 +283,38 @@ async function hybridSuggestions(query) {
     return stationNames.map(name => ({ name, type: 'station' }));
   }
 }
+
+async function getHybridSuggestions(userLocation, destinationCoords, options = {}) {
+  const routes = await prisma.routes.findMany({
+    include: {
+      route_stations: {
+        include: { station: true },
+        orderBy: [{ direction: 'asc' }, { station_order: 'asc' }],
+      },
+      buses: {
+        where: { current_status: 'active' },
+        select: { direction: true },
+      },
+    },
+    orderBy: { route_id: 'asc' },
+  });
+
+  return buildHybridSuggestions(routes, userLocation, destinationCoords, options);
+}
+
+const hybridPlanResponse = async (destination, passengerLat, passengerLng, destLat, destLng, metadata = {}) => {
+  const passenger = { lat: Number(passengerLat), lng: Number(passengerLng) };
+  const destinationCoords = { lat: Number(destLat), lng: Number(destLng) };
+  const plans = await getHybridSuggestions(passenger, destinationCoords);
+
+  return {
+    plans,
+    destination,
+    passenger,
+    destination_coords: destinationCoords,
+    ...metadata,
+  };
+};
 
 async function planRoute(destination, passengerLat, passengerLng) {
   const lat = parseFloat(passengerLat);
@@ -309,7 +341,7 @@ async function planRoute(destination, passengerLat, passengerLng) {
     return { plans: [], destination, passenger: { lat, lng } };
   }
 
-  return await _planRouteByCoords(destination, lat, lng, bestStation.lat, bestStation.lng);
+  return await hybridPlanResponse(destination, lat, lng, bestStation.lat, bestStation.lng);
 }
 
 async function planRouteV2(destination, passengerLat, passengerLng, destLat, destLng) {
@@ -317,7 +349,7 @@ async function planRouteV2(destination, passengerLat, passengerLng, destLat, des
   const lng = parseFloat(passengerLng);
 
   if (destLat && destLng) {
-    return await _planRouteByCoords(destination, lat, lng, parseFloat(destLat), parseFloat(destLng));
+    return await hybridPlanResponse(destination, lat, lng, parseFloat(destLat), parseFloat(destLng));
   }
 
   const stationResult = await planRoute(destination, passengerLat, passengerLng);
@@ -327,123 +359,18 @@ async function planRouteV2(destination, passengerLat, passengerLng, destLat, des
     const places = await geocodePlace(destination, lat, lng);
     if (places && places.length > 0) {
       const place = places[0];
-      const result = await _planRouteByCoords(destination, lat, lng, place.lat, place.lng, { maxWalkFromEnd: 3000 });
-      result.geocoded = true;
-      result.geocoded_place = place.name;
-      result.geocoded_lat = place.lat;
-      result.geocoded_lng = place.lng;
-      return result;
+      return await hybridPlanResponse(destination, lat, lng, place.lat, place.lng, {
+        geocoded: true,
+        geocoded_place: place.name,
+        geocoded_lat: place.lat,
+        geocoded_lng: place.lng,
+      });
     }
   } catch (e) {
     console.error('geocoding failed:', e.message);
   }
 
   return { plans: [], destination };
-}
-
-async function _planRouteByCoords(destName, passengerLat, passengerLng, destLat, destLng, options = {}) {
-  const maxWalkToStart = 2000;
-  const maxWalkFromEnd = options.maxWalkFromEnd || 1500;
-
-  const routes = await prisma.routes.findMany({
-    include: {
-      route_stations: {
-        include: { station: true },
-        orderBy: { station_order: 'asc' },
-      },
-      buses: { where: { current_status: 'active' } },
-    },
-  });
-
-  const candidates = [];
-  for (const route of routes) {
-    const grouped = groupRouteStationsByDirection(route.route_stations);
-
-    for (const direction of DIRECTIONS) {
-      const stations = grouped[direction];
-      if (stations.length < 2) continue;
-
-      const boardingOptions = stations
-        .filter(station => station.lat != null && station.lng != null)
-        .map(station => ({ station, distance: getDistance(passengerLat, passengerLng, station.lat, station.lng) }))
-        .filter(item => item.distance <= maxWalkToStart)
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 3);
-
-      const alightingOptions = stations
-        .filter(station => station.lat != null && station.lng != null)
-        .map(station => ({ station, distance: getDistance(destLat, destLng, station.lat, station.lng) }))
-        .filter(item => item.distance <= maxWalkFromEnd)
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 3);
-
-      for (const boarding of boardingOptions) {
-        for (const alighting of alightingOptions) {
-          const stationCount = alighting.station.station_order - boarding.station.station_order;
-          if (stationCount <= 0) continue;
-
-          const busMin = stationCount * MIN_PER_STATION;
-          const walkToStart = Math.round(boarding.distance / WALK_SPEED);
-          const walkFromEnd = Math.round(alighting.distance / WALK_SPEED);
-          const totalMin = busMin + walkToStart + walkFromEnd;
-          const totalWalking = Math.round(boarding.distance + alighting.distance);
-
-          candidates.push({
-            type: 'direct',
-            type_ar: 'رحلة مباشرة',
-            direction,
-            direction_ar: directionAr(direction),
-            total_minutes: totalMin,
-            total_walking: totalWalking,
-            walk_to_station: Math.round(boarding.distance),
-            walk_from_end: Math.round(alighting.distance),
-            walk_from_end_minutes: walkFromEnd,
-            from_station_lat: boarding.station.lat,
-            from_station_lng: boarding.station.lng,
-            dest_station_lat: alighting.station.lat,
-            dest_station_lng: alighting.station.lng,
-            destination_lat: destLat,
-            destination_lng: destLng,
-            legs: [{
-              action: 'bus',
-              route_id: route.route_id,
-              route_name: route.route_name,
-              direction,
-              from: boarding.station.name,
-              to: alighting.station.name,
-              from_lat: boarding.station.lat,
-              from_lng: boarding.station.lng,
-              to_lat: alighting.station.lat,
-              to_lng: alighting.station.lng,
-              stations: stationCount,
-              minutes: busMin,
-              buses: route.buses.filter(bus => bus.direction === direction).length,
-            }],
-          });
-        }
-      }
-    }
-  }
-
-  if (candidates.length === 0) {
-    return { plans: [], destination: destName, passenger: { lat: passengerLat, lng: passengerLng } };
-  }
-
-  const fastest = [...candidates].sort((a, b) => a.total_minutes - b.total_minutes)[0];
-  const comfort = [...candidates].sort((a, b) => a.total_walking - b.total_walking)[0];
-  fastest.tag = 'fastest';
-  fastest.tag_ar = 'الأسرع';
-  comfort.tag = 'comfort';
-  comfort.tag_ar = 'الأريح';
-
-  const plans = [fastest];
-  if (JSON.stringify(fastest.legs) !== JSON.stringify(comfort.legs)) plans.push(comfort);
-
-  return {
-    plans,
-    destination: destName,
-    passenger: { lat: passengerLat, lng: passengerLng },
-  };
 }
 
 module.exports = {
@@ -456,6 +383,7 @@ module.exports = {
   smartSearch,
   planRoute,
   getStationSuggestions,
-  hybridSuggestions,
+  getPlaceSuggestions,
+  getHybridSuggestions,
   planRouteV2,
 };
