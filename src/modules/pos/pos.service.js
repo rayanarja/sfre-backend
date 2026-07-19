@@ -52,24 +52,29 @@ const deletePOS = async (id) => {
 // === شحن رصيد (من الأدمن) ===
 
 const rechargeBalance = async (pos_id, amount) => {
-  const pos = await prisma.pOS_Points.findUnique({ where: { pos_id: parseInt(pos_id) } });
-  if (!pos) throw { status: 404, message: 'نقطة البيع غير موجودة' };
+  const posId = parseInt(pos_id);
+  const rechargeAmount = parseFloat(amount);
 
-  await prisma.pOS_Points.update({
-    where: { pos_id: parseInt(pos_id) },
-    data: { balance: { increment: parseFloat(amount) } },
+  return await prisma.$transaction(async (tx) => {
+    const pos = await tx.pOS_Points.findUnique({ where: { pos_id: posId } });
+    if (!pos) throw { status: 404, message: 'نقطة البيع غير موجودة' };
+
+    const updatedPOS = await tx.pOS_Points.update({
+      where: { pos_id: posId },
+      data: { balance: { increment: rechargeAmount } },
+      select: { balance: true },
+    });
+    await tx.pOS_Transactions.create({
+      data: {
+        pos_id: posId,
+        type: 'recharge',
+        amount: rechargeAmount,
+        description: `شحن رصيد ${amount} ل.س`,
+      },
+    });
+
+    return { message: `تم شحن ${amount} ل.س بنجاح`, balance: updatedPOS.balance };
   });
-
-  await prisma.pOS_Transactions.create({
-    data: {
-      pos_id: parseInt(pos_id),
-      type: 'recharge',
-      amount: parseFloat(amount),
-      description: `شحن رصيد ${amount} ل.س`,
-    },
-  });
-
-  return { message: `تم شحن ${amount} ل.س بنجاح` };
 };
 
 // === تسجيل دخول نقطة البيع ===
@@ -108,66 +113,90 @@ const loginPOS = async (phone, password) => {
 // === بيع اشتراك (من نقطة البيع) ===
 
 const sellSubscription = async (pos_id, user_email, plan_id) => {
-  const pos = await prisma.pOS_Points.findUnique({ where: { pos_id: parseInt(pos_id) } });
-  if (!pos) throw { status: 404, message: 'نقطة البيع غير موجودة' };
+  const posId = parseInt(pos_id);
+  const planId = parseInt(plan_id);
 
-  const plan = await prisma.subscription_Plans.findUnique({ where: { plan_id: parseInt(plan_id) } });
-  if (!plan) throw { status: 404, message: 'الخطة غير موجودة' };
+  return await prisma.$transaction(async (tx) => {
+    const [pos, plan, user] = await Promise.all([
+      tx.pOS_Points.findUnique({ where: { pos_id: posId } }),
+      tx.subscription_Plans.findUnique({ where: { plan_id: planId } }),
+      tx.users.findFirst({ where: { email: user_email } }),
+    ]);
+    if (!pos) throw { status: 404, message: 'نقطة البيع غير موجودة' };
+    if (!pos.is_active) throw { status: 403, message: 'نقطة البيع معطلة' };
+    if (!plan) throw { status: 404, message: 'الخطة غير موجودة' };
+    if (!user) throw { status: 404, message: 'المستخدم غير موجود — تأكد من الإيميل' };
 
-  // تحقق من الرصيد
-  if (pos.balance < plan.price) {
-    throw { status: 400, message: `رصيدك غير كافي — بدك ${plan.price} ل.س ورصيدك ${pos.balance} ل.س` };
-  }
+    const debit = await tx.pOS_Points.updateMany({
+      where: { pos_id: posId, is_active: true, balance: { gte: plan.price } },
+      data: { balance: { decrement: plan.price } },
+    });
+    if (debit.count !== 1) {
+      throw { status: 400, message: `رصيدك غير كافي — بدك ${plan.price} ل.س ورصيدك ${pos.balance} ل.س` };
+    }
 
-  // جيب المستخدم
-  const user = await prisma.users.findFirst({ where: { email: user_email } });
-  if (!user) throw { status: 404, message: 'المستخدم غير موجود — تأكد من الإيميل' };
+    await tx.subscriptions.updateMany({
+      where: { user_id: user.user_id, status: 'active' },
+      data: { status: 'expired' },
+    });
 
-  // ألغِ أي اشتراك قديم
-  await prisma.subscriptions.updateMany({
-    where: { user_id: user.user_id, status: 'active' },
-    data: { status: 'expired' },
-  });
+    const now = new Date();
+    const endDate = new Date(now);
+    endDate.setDate(endDate.getDate() + (plan.duration_days || 30));
+    const subscription = await tx.subscriptions.create({
+      data: {
+        user_id: user.user_id,
+        plan_id: plan.plan_id,
+        start_date: now,
+        end_date: endDate,
+        trips_used: 0,
+        trips_limit: plan.trip_limit,
+        max_users: plan.max_users,
+        status: 'active',
+      },
+    });
 
-  // أنشئ الاشتراك
-  const now = new Date();
-  const endDate = new Date(now);
-  endDate.setDate(endDate.getDate() + (plan.duration_days || 30));
+    await tx.pOS_Transactions.create({
+      data: {
+        pos_id: posId,
+        type: 'sale',
+        amount: plan.price,
+        description: `بيع اشتراك ${plan.name} للمستخدم ${user.email}`,
+        subscription_id: subscription.subscription_id,
+      },
+    });
+    const updatedPOS = await tx.pOS_Points.findUnique({
+      where: { pos_id: posId },
+      select: { balance: true },
+    });
 
-  const subscription = await prisma.subscriptions.create({
-    data: {
-      user_id: user.user_id,
-      plan_id: plan.plan_id,
-      start_date: now,
-      end_date: endDate,
-      trips_used: 0,
-      trips_limit: plan.trip_limit,
-      max_users: plan.max_users,
-      status: 'active',
-    },
-  });
-
-  // اخصم من رصيد نقطة البيع
-  await prisma.pOS_Points.update({
-    where: { pos_id: parseInt(pos_id) },
-    data: { balance: { decrement: plan.price } },
-  });
-
-  // سجّل المعاملة
-  await prisma.pOS_Transactions.create({
-    data: {
-      pos_id: parseInt(pos_id),
-      type: 'sale',
-      amount: plan.price,
-      description: `بيع اشتراك ${plan.name} للمستخدم ${user.email}`,
+    return {
+      message: `تم تفعيل اشتراك ${plan.name} لـ ${user.username}`,
       subscription_id: subscription.subscription_id,
+      remaining_balance: updatedPOS.balance,
+    };
+  });
+};
+
+const getDashboard = async (pos_id) => {
+  const pos = await prisma.pOS_Points.findUnique({
+    where: { pos_id: parseInt(pos_id) },
+    select: {
+      pos_id: true,
+      balance: true,
+      is_active: true,
+      transactions: {
+        orderBy: { created_at: 'desc' },
+        take: 10,
+      },
     },
   });
+  if (!pos) throw { status: 404, message: 'نقطة البيع غير موجودة' };
+  if (!pos.is_active) throw { status: 403, message: 'نقطة البيع معطلة' };
 
   return {
-    message: `تم تفعيل اشتراك ${plan.name} لـ ${user.username}`,
-    subscription_id: subscription.subscription_id,
-    remaining_balance: pos.balance - plan.price,
+    pos: { id: pos.pos_id, balance: pos.balance },
+    transactions: pos.transactions,
   };
 };
 
@@ -206,5 +235,5 @@ const changePassword = async (pos_id, oldPassword, newPassword) => {
 
 module.exports = {
   getAllPOS, getPOSById, createPOS, updatePOS, deletePOS,
-  rechargeBalance, loginPOS, sellSubscription, getTransactions, getActivePOS, changePassword,
+  rechargeBalance, loginPOS, getDashboard, sellSubscription, getTransactions, getActivePOS, changePassword,
 };

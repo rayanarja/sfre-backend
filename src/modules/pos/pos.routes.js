@@ -9,8 +9,9 @@ const s = require('../../validations/schemas').pos;
 
 router.get('/active', controller.active);
 router.post('/login', authLimiter, controller.login);
-router.post('/sell', auth, validate(s.sellSubscription), controller.sell);
-router.get('/transactions/:id', auth, controller.transactions);
+router.get('/dashboard', auth, authorize('pos'), controller.dashboard);
+router.post('/sell', auth, authorize('pos'), validate(s.sellSubscription), controller.sell);
+router.get('/transactions/:id', auth, authorize('admin'), controller.transactions);
 router.post('/change-password', auth, controller.changePass);
 router.get('/', auth, authorize('admin'), controller.getAll);
 router.get('/:id', auth, authorize('admin'), controller.getOne);

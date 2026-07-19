@@ -193,7 +193,6 @@ const createPOS = Joi.object({
 });
 
 const sellSubscription = Joi.object({
-  pos_id: Joi.number().integer().required(),
   user_email: Joi.string().email().required(),
   plan_id: Joi.number().integer().required(),
 });

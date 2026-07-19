@@ -7,8 +7,9 @@ const update = async (req, res, next) => { try { res.json(await posService.updat
 const remove = async (req, res, next) => { try { res.json(await posService.deletePOS(req.params.id)); } catch (e) { next(e); } };
 const recharge = async (req, res, next) => { try { res.json(await posService.rechargeBalance(req.params.id, req.body.amount)); } catch (e) { next(e); } };
 const login = async (req, res, next) => { try { res.json(await posService.loginPOS(req.body.phone, req.body.password)); } catch (e) { next(e); } };
-const sell = async (req, res, next) => { try { res.json(await posService.sellSubscription(req.body.pos_id, req.body.user_email, req.body.plan_id)); } catch (e) { next(e); } };
+const dashboard = async (req, res, next) => { try { res.json(await posService.getDashboard(req.user.id)); } catch (e) { next(e); } };
+const sell = async (req, res, next) => { try { res.json(await posService.sellSubscription(req.user.id, req.body.user_email, req.body.plan_id)); } catch (e) { next(e); } };
 const transactions = async (req, res, next) => { try { res.json(await posService.getTransactions(req.params.id)); } catch (e) { next(e); } };
 const active = async (req, res, next) => { try { res.json(await posService.getActivePOS()); } catch (e) { next(e); } };
 const changePass = async (req, res, next) => { try { res.json(await posService.changePassword(req.body.pos_id, req.body.old_password, req.body.new_password)); } catch (e) { next(e); } };
-module.exports = { getAll, getOne, create, update, remove, recharge, login, sell, transactions, active, changePass };
+module.exports = { getAll, getOne, create, update, remove, recharge, login, dashboard, sell, transactions, active, changePass };
