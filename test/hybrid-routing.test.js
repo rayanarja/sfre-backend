@@ -127,6 +127,44 @@ test('never returns a walking leg longer than 250 metres', () => {
   assert.ok(walks.every(leg => leg.distance_meters <= 250));
 });
 
+test('returns fastest and least-walking direct choices when their stops differ', () => {
+  const origin = { lat: 36, lng: 37 };
+  const destination = { lat: 36.01, lng: 37 };
+  const network = [
+    route(1, 'Destination line', [
+      stop(1, 'Start', 36, 37),
+      stop(2, 'Stop before destination', 36.0085, 37),
+      stop(3, 'Stop at destination', 36.01, 37),
+    ]),
+  ];
+
+  const result = buildHybridSuggestions(network, origin, destination);
+  assert.equal(result.length, 2);
+  assert.deepEqual(
+    new Set(result.map(item => item.recommendation_type)),
+    new Set(['fastest', 'least_walking']),
+  );
+  const leastWalking = result.find(item => item.recommendation_type === 'least_walking');
+  const leastWalkingBus = leastWalking.legs.find(leg => leg.mode === 'bus');
+  assert.equal(leastWalkingBus.to_stop.name, 'Stop at destination');
+  assert.equal(leastWalking.walking_distance_meters, 0);
+});
+
+test('returns one direct choice when fastest is also least walking', () => {
+  const origin = { lat: 36, lng: 37 };
+  const destination = { lat: 36.01, lng: 37 };
+  const network = [
+    route(1, 'Single choice', [
+      stop(1, 'Start', 36, 37),
+      stop(2, 'Destination', 36.01, 37),
+    ]),
+  ];
+
+  const result = buildHybridSuggestions(network, origin, destination);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].recommendation_type, 'fastest_and_least_walking');
+});
+
 test('rejects invalid coordinates instead of querying with corrupted graph weights', () => {
   assert.throws(
     () => buildHybridSuggestions([], { lat: 100, lng: 37 }, { lat: 36, lng: 37 }),

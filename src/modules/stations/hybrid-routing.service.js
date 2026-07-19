@@ -9,6 +9,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   maximumBoardingWalkMeters: 250,
   maximumDestinationWalkMeters: 250,
   destinationArrivalToleranceMeters: 50,
+  minimumWalkingChoiceDifferenceMeters: 50,
   maxTransferWalkMeters: 250,
 });
 
@@ -123,8 +124,8 @@ const finalizeSuggestion = ({ baseType, legs, transferStop = null }, options) =>
   };
 };
 
-const directCandidate = (pattern, origin, destination, limits, options) => {
-  let best = null;
+const directCandidates = (pattern, origin, destination, limits, options) => {
+  const candidates = [];
 
   for (let boardIndex = 0; boardIndex < pattern.stops.length - 1; boardIndex += 1) {
     const boardStop = pattern.stops[boardIndex];
@@ -145,12 +146,44 @@ const directCandidate = (pattern, origin, destination, limits, options) => {
         walkingLeg(stopSummary(alightStop), 'destination', finalDistance, options, 'last_mile'),
       ];
       const suggestion = finalizeSuggestion({ baseType: 'direct', legs }, options);
-
-      if (!best || suggestion.total_duration < best.total_duration) best = suggestion;
+      candidates.push(suggestion);
     }
   }
 
-  return best;
+  if (candidates.length === 0) return [];
+
+  const fastest = candidates.reduce((best, item) =>
+    item.total_duration < best.total_duration ? item : best);
+  const leastWalking = candidates.reduce((best, item) =>
+    item.walking_distance_meters < best.walking_distance_meters
+      || (item.walking_distance_meters === best.walking_distance_meters
+        && item.total_duration < best.total_duration)
+      ? item
+      : best);
+
+  const withPreference = (suggestion, recommendationType) => ({
+    ...suggestion,
+    recommendation_type: recommendationType,
+  });
+  const sameJourney = (first, second) => {
+    const firstBus = first.legs.find(leg => leg.mode === 'bus');
+    const secondBus = second.legs.find(leg => leg.mode === 'bus');
+    return firstBus?.route_id === secondBus?.route_id
+      && firstBus?.direction === secondBus?.direction
+      && firstBus?.from_stop?.station_id === secondBus?.from_stop?.station_id
+      && firstBus?.to_stop?.station_id === secondBus?.to_stop?.station_id;
+  };
+
+  if (sameJourney(fastest, leastWalking)
+    || fastest.walking_distance_meters - leastWalking.walking_distance_meters
+      < options.minimumWalkingChoiceDifferenceMeters) {
+    return [withPreference(fastest, 'fastest_and_least_walking')];
+  }
+
+  return [
+    withPreference(fastest, 'fastest'),
+    withPreference(leastWalking, 'least_walking'),
+  ];
 };
 
 const transferCandidate = (first, second, origin, destination, limits, options) => {
@@ -258,8 +291,7 @@ const buildHybridSuggestions = (networkData, userLocation, destinationCoords, cu
   // One best journey per line and direction prevents duplicate stop combinations,
   // while retaining every distinct line that can make the direct journey.
   const direct = patterns
-    .map(pattern => directCandidate(pattern, origin, destination, limits, options))
-    .filter(Boolean)
+    .flatMap(pattern => directCandidates(pattern, origin, destination, limits, options))
     .sort((a, b) => a.total_duration - b.total_duration);
   // A valid direct line is preferable to artificial mid-route transfers. Direct
   // candidates with excessive walking were already rejected by the hard limits.
