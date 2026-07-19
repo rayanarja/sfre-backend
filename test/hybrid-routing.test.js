@@ -44,20 +44,53 @@ test('returns a two-line transfer through nearby stops when no direct line exist
   assert.ok(result[0].transfer_stop.walking_distance_meters > 0);
 });
 
-test('uses the nearest reachable stop and reports last-mile walking', () => {
+test('rejects a journey whose first or last walk exceeds the transit walking limits', () => {
   const origin = { lat: 36, lng: 37 };
   const destination = { lat: 36.03, lng: 37.03 };
   const network = [
     route(1, 'Line A', [stop(1, 'Start', 36, 37), stop(2, 'Nearest End', 36.02, 37.02)]),
   ];
 
-  const [result] = buildHybridSuggestions(network, origin, destination);
-  const finalLeg = result.legs[result.legs.length - 1];
-  assert.equal(result.type, 'walking_required');
-  assert.equal(result.transit_type, 'direct');
-  assert.equal(finalLeg.purpose, 'last_mile');
-  assert.ok(finalLeg.distance_meters > 1000);
-  assert.equal(result.walking_distance_meters, finalLeg.distance_meters);
+  const result = buildHybridSuggestions(network, origin, destination);
+  assert.deepEqual(result, []);
+});
+
+test('returns a useful transfer even when a worse direct route exists', () => {
+  const origin = { lat: 36, lng: 37 };
+  const destination = { lat: 36.02, lng: 37.02 };
+  const network = [
+    route(1, 'Slow direct', [
+      stop(1, 'Direct start', 36.006, 37),
+      stop(2, 'Direct end', 36.02, 37.02),
+    ]),
+    route(2, 'First bus', [
+      stop(3, 'Near user', 36, 37),
+      stop(4, 'Transfer A', 36.01, 37.01),
+    ]),
+    route(3, 'Second bus', [
+      stop(5, 'Transfer B', 36.0102, 37.0102),
+      stop(6, 'Near destination', 36.02, 37.02),
+    ]),
+  ];
+
+  const result = buildHybridSuggestions(network, origin, destination);
+  assert.ok(result.some(item => item.transit_type === 'direct'));
+  assert.ok(result.some(item => item.transit_type === 'transfer'));
+  assert.equal(result[0].transit_type, 'transfer');
+});
+
+test('does not walk to or past the destination to board a bus back toward it', () => {
+  const origin = { lat: 36, lng: 37 };
+  const destination = { lat: 36.004, lng: 37 };
+  const network = [
+    route(1, 'Backward bus', [
+      stop(1, 'Economics after destination', 36.005, 37),
+      stop(2, 'University destination', 36.004, 37),
+    ]),
+  ];
+
+  const result = buildHybridSuggestions(network, origin, destination);
+  assert.deepEqual(result, []);
 });
 
 test('rejects invalid coordinates instead of querying with corrupted graph weights', () => {

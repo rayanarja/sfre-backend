@@ -6,9 +6,9 @@ const DEFAULT_OPTIONS = Object.freeze({
   walkSpeedMetersPerMinute: 70,
   minutesPerStop: 3,
   waitMinutesPerBoarding: 5,
-  minimumBoardingRadiusMeters: 2000,
-  minimumDestinationRadiusMeters: 500,
-  nearestStopToleranceMeters: 250,
+  maximumBoardingWalkMeters: 800,
+  maximumDestinationWalkMeters: 500,
+  destinationArrivalToleranceMeters: 50,
   maxTransferWalkMeters: 250,
 });
 
@@ -63,41 +63,21 @@ const buildPatterns = (routes) => {
   return patterns;
 };
 
-const uniqueStops = (patterns) => {
-  const stops = new Map();
-  for (const pattern of patterns) {
-    for (const stop of pattern.stops) stops.set(stop.station_id, stop);
-  }
-  return [...stops.values()];
-};
-
 const distanceTo = (point, stop) => getDistance(point.lat, point.lng, stop.lat, stop.lng);
 
-const calculateAccessLimits = (patterns, origin, destination, options) => {
-  const stops = uniqueStops(patterns);
-  if (stops.length === 0) return null;
-
-  let nearestOrigin = Infinity;
-  let nearestDestination = Infinity;
-  for (const stop of stops) {
-    nearestOrigin = Math.min(nearestOrigin, distanceTo(origin, stop));
-    nearestDestination = Math.min(nearestDestination, distanceTo(destination, stop));
-  }
-
-  return {
-    // Always make the nearest stop reachable, even in sparse parts of the network.
-    origin: Math.max(
-      options.minimumBoardingRadiusMeters,
-      nearestOrigin + options.nearestStopToleranceMeters,
+const calculateAccessLimits = (patterns, origin, destination, options) => patterns.length === 0 ? null : ({
+  // Walking is a feeder to transit, not an unlimited fallback. Hard limits also
+  // prevent walking past the destination just to board a bus travelling backwards.
+  origin: Math.min(
+    options.maximumBoardingWalkMeters,
+    Math.max(
+      0,
+      getDistance(origin.lat, origin.lng, destination.lat, destination.lng)
+        - options.destinationArrivalToleranceMeters,
     ),
-    // If no stop is beside the destination, restrict routing to the globally nearest
-    // destination stops instead of treating every remote stop as a valid destination.
-    destination: Math.max(
-      options.minimumDestinationRadiusMeters,
-      nearestDestination + options.nearestStopToleranceMeters,
-    ),
-  };
-};
+  ),
+  destination: options.maximumDestinationWalkMeters,
+});
 
 const routeLeg = (pattern, from, to, options) => {
   const stopCount = to.index - from.index;
@@ -129,7 +109,7 @@ const finalizeSuggestion = ({ baseType, legs, transferStop = null }, options) =>
   const finalWalk = lastLeg?.mode === 'walking' ? lastLeg.distance_meters : 0;
   const walkingDistance = walkingLegs.reduce((sum, leg) => sum + leg.distance_meters, 0);
   const duration = legs.reduce((sum, leg) => sum + leg.duration_minutes, 0);
-  const requiresLastMileWalk = finalWalk > options.minimumDestinationRadiusMeters;
+  const requiresLastMileWalk = finalWalk > 0;
 
   return {
     type: requiresLastMileWalk ? 'walking_required' : baseType,
@@ -281,9 +261,8 @@ const buildHybridSuggestions = (networkData, userLocation, destinationCoords, cu
     .map(pattern => directCandidate(pattern, origin, destination, limits, options))
     .filter(Boolean)
     .sort((a, b) => a.total_duration - b.total_duration);
-  if (direct.length > 0) return direct;
-
-  // No direct line exists: retain the best transfer point for every ordered line pair.
+  // Evaluate transfers even when a direct line exists. A nominally direct journey
+  // can require much more walking than a useful two-bus journey.
   const transfers = [];
   for (const first of patterns) {
     for (const second of patterns) {
@@ -292,7 +271,7 @@ const buildHybridSuggestions = (networkData, userLocation, destinationCoords, cu
     }
   }
 
-  return transfers.sort((a, b) => a.total_duration - b.total_duration);
+  return [...direct, ...transfers].sort((a, b) => a.total_duration - b.total_duration);
 };
 
 module.exports = { buildHybridSuggestions, DEFAULT_OPTIONS };
