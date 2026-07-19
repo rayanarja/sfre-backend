@@ -60,7 +60,7 @@ test('does not invent a transfer when an acceptable direct route exists', () => 
   const destination = { lat: 36.02, lng: 37.02 };
   const network = [
     route(1, 'Slow direct', [
-      stop(1, 'Direct start', 36.006, 37),
+      stop(1, 'Direct start', 36.002, 37),
       stop(2, 'Direct end', 36.02, 37.02),
     ]),
     route(2, 'First bus', [
@@ -92,22 +92,39 @@ test('does not walk to or past the destination to board a bus back toward it', (
   assert.deepEqual(result, []);
 });
 
-test('does not walk backwards to board a transfer journey', () => {
-  const origin = { lat: 36.01, lng: 37 };
-  const destination = { lat: 36.03, lng: 37 };
+test('allows a valid transfer whose bus route is not geometrically straight toward the destination', () => {
+  const origin = { lat: 36, lng: 37 };
+  const destination = { lat: 36.02, lng: 37.02 };
   const network = [
-    route(1, 'Back to first bus', [
-      stop(1, 'Behind user', 36.005, 37),
-      stop(2, 'Distant transfer A', 36.018, 37),
+    route(1, 'First bus around the road', [
+      stop(1, 'Near user', 36, 37),
+      stop(2, 'Transfer A', 35.999, 37.01),
     ]),
     route(2, 'Second bus', [
-      stop(3, 'Distant transfer B', 36.0181, 37),
-      stop(4, 'Destination', 36.03, 37),
+      stop(3, 'Transfer B', 35.9991, 37.0101),
+      stop(4, 'Destination', 36.02, 37.02),
     ]),
   ];
 
   const result = buildHybridSuggestions(network, origin, destination);
-  assert.deepEqual(result, []);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].transit_type, 'transfer');
+});
+
+test('never returns a walking leg longer than 250 metres', () => {
+  const origin = { lat: 36, lng: 37 };
+  const destination = { lat: 36.02, lng: 37.02 };
+  const network = [
+    route(1, 'Valid direct', [
+      stop(1, 'Near user', 36.002, 37),
+      stop(2, 'Near destination', 36.02, 37.022),
+    ]),
+  ];
+
+  const result = buildHybridSuggestions(network, origin, destination);
+  assert.ok(result.length > 0);
+  const walks = result.flatMap(item => item.legs.filter(leg => leg.mode === 'walking'));
+  assert.ok(walks.every(leg => leg.distance_meters <= 250));
 });
 
 test('rejects invalid coordinates instead of querying with corrupted graph weights', () => {
