@@ -65,6 +65,9 @@ const buildPatterns = (routes) => {
 
 const distanceTo = (point, stop) => getDistance(point.lat, point.lng, stop.lat, stop.lng);
 
+const movesTowardDestination = (from, to, destination, toleranceMeters = 50) =>
+  distanceTo(destination, to) <= distanceTo(destination, from) + toleranceMeters;
+
 const calculateAccessLimits = (patterns, origin, destination, options) => patterns.length === 0 ? null : ({
   // Walking is a feeder to transit, not an unlimited fallback. Hard limits also
   // prevent walking past the destination just to board a bus travelling backwards.
@@ -130,11 +133,15 @@ const directCandidate = (pattern, origin, destination, limits, options) => {
     const boardStop = pattern.stops[boardIndex];
     const accessDistance = distanceTo(origin, boardStop);
     if (accessDistance > limits.origin) continue;
+    // Do not walk backwards to a stop that leaves the passenger farther from
+    // the destination than their current position.
+    if (!movesTowardDestination(origin, boardStop, destination)) continue;
 
     for (let alightIndex = boardIndex + 1; alightIndex < pattern.stops.length; alightIndex += 1) {
       const alightStop = pattern.stops[alightIndex];
       const finalDistance = distanceTo(destination, alightStop);
       if (finalDistance > limits.destination) continue;
+      if (!movesTowardDestination(boardStop, alightStop, destination)) continue;
 
       const board = { stop: boardStop, index: boardIndex };
       const alight = { stop: alightStop, index: alightIndex };
@@ -165,6 +172,8 @@ const transferCandidate = (first, second, origin, destination, limits, options) 
       const stop = first.stops[boardIndex];
       const distance = distanceTo(origin, stop);
       if (distance > limits.origin) continue;
+      if (!movesTowardDestination(origin, stop, destination)) continue;
+      if (!movesTowardDestination(stop, first.stops[transferIndex], destination)) continue;
       const cost = walkingMinutes(distance, options)
         + options.waitMinutesPerBoarding
         + ((transferIndex - boardIndex) * options.minutesPerStop);
@@ -179,6 +188,7 @@ const transferCandidate = (first, second, origin, destination, limits, options) 
       const stop = second.stops[alightIndex];
       const distance = distanceTo(destination, stop);
       if (distance > limits.destination) continue;
+      if (!movesTowardDestination(second.stops[transferIndex], stop, destination)) continue;
       const cost = ((alightIndex - transferIndex) * options.minutesPerStop)
         + walkingMinutes(distance, options);
       if (!choice || cost < choice.cost) choice = { index: alightIndex, stop, distance, cost };
@@ -261,8 +271,11 @@ const buildHybridSuggestions = (networkData, userLocation, destinationCoords, cu
     .map(pattern => directCandidate(pattern, origin, destination, limits, options))
     .filter(Boolean)
     .sort((a, b) => a.total_duration - b.total_duration);
-  // Evaluate transfers even when a direct line exists. A nominally direct journey
-  // can require much more walking than a useful two-bus journey.
+  // A valid direct line is preferable to artificial mid-route transfers. Direct
+  // candidates with excessive walking were already rejected by the hard limits.
+  if (direct.length > 0) return direct;
+
+  // Only search for a transfer when no acceptable direct transit journey exists.
   const transfers = [];
   for (const first of patterns) {
     for (const second of patterns) {

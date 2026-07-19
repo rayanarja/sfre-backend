@@ -55,7 +55,7 @@ test('rejects a journey whose first or last walk exceeds the transit walking lim
   assert.deepEqual(result, []);
 });
 
-test('returns a useful transfer even when a worse direct route exists', () => {
+test('does not invent a transfer when an acceptable direct route exists', () => {
   const origin = { lat: 36, lng: 37 };
   const destination = { lat: 36.02, lng: 37.02 };
   const network = [
@@ -75,8 +75,7 @@ test('returns a useful transfer even when a worse direct route exists', () => {
 
   const result = buildHybridSuggestions(network, origin, destination);
   assert.ok(result.some(item => item.transit_type === 'direct'));
-  assert.ok(result.some(item => item.transit_type === 'transfer'));
-  assert.equal(result[0].transit_type, 'transfer');
+  assert.ok(result.every(item => item.transit_type === 'direct'));
 });
 
 test('does not walk to or past the destination to board a bus back toward it', () => {
@@ -86,6 +85,24 @@ test('does not walk to or past the destination to board a bus back toward it', (
     route(1, 'Backward bus', [
       stop(1, 'Economics after destination', 36.005, 37),
       stop(2, 'University destination', 36.004, 37),
+    ]),
+  ];
+
+  const result = buildHybridSuggestions(network, origin, destination);
+  assert.deepEqual(result, []);
+});
+
+test('does not walk backwards to board a transfer journey', () => {
+  const origin = { lat: 36.01, lng: 37 };
+  const destination = { lat: 36.03, lng: 37 };
+  const network = [
+    route(1, 'Back to first bus', [
+      stop(1, 'Behind user', 36.005, 37),
+      stop(2, 'Distant transfer A', 36.018, 37),
+    ]),
+    route(2, 'Second bus', [
+      stop(3, 'Distant transfer B', 36.0181, 37),
+      stop(4, 'Destination', 36.03, 37),
     ]),
   ];
 
