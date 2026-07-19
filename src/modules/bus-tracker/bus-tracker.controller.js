@@ -17,6 +17,9 @@ const findBuses = async (req, res, next) => {
 
 const getMapBuses = async (req, res, next) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     const result = await trackerService.getMapBuses(req.query);
     res.json(result);
   } catch (err) { next(err); }

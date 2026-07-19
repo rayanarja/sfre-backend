@@ -1,6 +1,7 @@
 const prisma = require('../../config/database');
 const { emitBusPosition } = require('../../socket');
 const { getDistance } = require('../../utils/geo');
+const logger = require('../../utils/logger');
 
 const DIRECTIONS = ['outbound', 'inbound'];
 const AVG_SPEED_KMH = 25;
@@ -26,6 +27,18 @@ const toStationOnRoute = (routeStation) => ({
 
 const updateBusPosition = async (bus_id, lat, lng) => {
   const busId = parseInt(bus_id);
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+
+  if (!Number.isInteger(busId)
+    || !Number.isFinite(latitude)
+    || !Number.isFinite(longitude)
+    || Math.abs(latitude) > 90
+    || Math.abs(longitude) > 180) {
+    throw { status: 400, message: 'Valid bus_id, lat and lng are required' };
+  }
+
+  logger.info('Bus position received', { bus_id: busId, lat: latitude, lng: longitude });
 
   const bus = await prisma.buses.findUnique({
     where: { bus_id: busId },
@@ -53,7 +66,7 @@ const updateBusPosition = async (bus_id, lat, lng) => {
 
   for (const station of routeStations) {
     if (station.lat == null || station.lng == null) continue;
-    const dist = getDistance(lat, lng, station.lat, station.lng);
+    const dist = getDistance(latitude, longitude, station.lat, station.lng);
     if (dist < minDistance) {
       minDistance = dist;
       closestStation = station;
@@ -63,15 +76,24 @@ const updateBusPosition = async (bus_id, lat, lng) => {
   let finalDirection = currentDirection;
   let finalStationIndex = closestStation ? closestStation.station_order : bus.current_station_index;
 
-  await prisma.buses.update({
+  const updateTime = new Date();
+  const updatedBus = await prisma.buses.update({
     where: { bus_id: busId },
     data: {
-      current_lat: lat,
-      current_lng: lng,
+      current_lat: latitude,
+      current_lng: longitude,
       current_station_index: finalStationIndex,
       direction: currentDirection,
-      last_update: new Date(),
+      last_update: updateTime,
     },
+    select: { bus_id: true, current_lat: true, current_lng: true, last_update: true },
+  });
+
+  logger.info('Bus position persisted', {
+    bus_id: updatedBus.bus_id,
+    lat: updatedBus.current_lat,
+    lng: updatedBus.current_lng,
+    last_update: updatedBus.last_update,
   });
 
   if (closestStation && minDistance < 200 && routeStations.length > 0) {
@@ -83,8 +105,9 @@ const updateBusPosition = async (bus_id, lat, lng) => {
   }
 
   const payload = {
-    lat,
-    lng,
+    lat: updatedBus.current_lat,
+    lng: updatedBus.current_lng,
+    last_update: updatedBus.last_update,
     plate_number: bus.plate_number,
     current_station: closestStation?.name || null,
     current_station_index: finalStationIndex || 1,
@@ -96,6 +119,9 @@ const updateBusPosition = async (bus_id, lat, lng) => {
 
   return {
     bus_id: busId,
+    lat: updatedBus.current_lat,
+    lng: updatedBus.current_lng,
+    last_update: updatedBus.last_update,
     plate_number: bus.plate_number,
     current_station: payload.current_station,
     current_station_index: payload.current_station_index,
@@ -243,6 +269,15 @@ const getMapBuses = async (query = {}) => {
       },
     },
     orderBy: { last_update: 'desc' },
+  });
+
+  logger.info('Bus map locations returned', {
+    buses: buses.map(bus => ({
+      bus_id: bus.bus_id,
+      lat: bus.current_lat,
+      lng: bus.current_lng,
+      last_update: bus.last_update,
+    })),
   });
 
   return {

@@ -76,14 +76,21 @@ const initSocket = (server) => {
     });
 
     // السائق يبعث موقعه — يتوزع لكل يلي عم يتابعوا
-    socket.on('position:update', (data) => {
-      if (data.bus_id && data.lat && data.lng) {
-        io.to(`bus:${data.bus_id}`).emit('bus:position', {
+    socket.on('position:update', async (data = {}) => {
+      try {
+        // Use the same persistence path as PUT /bus-tracker/position/:bus_id.
+        // The service also emits the saved position after the database update.
+        const trackerService = require('./modules/bus-tracker/bus-tracker.service');
+        await trackerService.updateBusPosition(data.bus_id, data.lat, data.lng);
+      } catch (error) {
+        logger.error('Socket bus position update failed', {
           bus_id: data.bus_id,
           lat: data.lat,
           lng: data.lng,
-          speed: data.speed || 0,
-          timestamp: new Date().toISOString(),
+          error: error.message || String(error),
+        });
+        socket.emit('position:error', {
+          message: error.message || 'Failed to update bus position',
         });
       }
     });
