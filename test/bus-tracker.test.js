@@ -41,6 +41,9 @@ test('persists the second position for the same bus and map returns it', async (
         findMany: async () => [storedBus],
       },
       route_Stations: { count: async () => 0, findMany: async () => [] },
+      bus_Tracking_Log: {
+        create: async ({ data }) => ({ log_id: 1, ...data, timestamp: new Date() }),
+      },
     },
   };
   require.cache[socketPath] = {
@@ -72,4 +75,14 @@ test('persists the second position for the same bus and map returns it', async (
   assert.equal(map.buses[0].lat, 36.202);
   assert.equal(map.buses[0].lng, 37.102);
   assert.equal(map.buses[0].last_update, second.last_update);
+
+  const trackingServicePath = require.resolve('../src/modules/tracking/tracking.service');
+  delete require.cache[trackingServicePath];
+  const trackingService = require(trackingServicePath);
+  await trackingService.createLog({ bus_id: 7, lat: '36.203', lng: '37.103' });
+  const mapAfterLegacyTracking = await service.getMapBuses();
+
+  assert.deepEqual(updatedIds, [7, 7, 7]);
+  assert.equal(mapAfterLegacyTracking.buses[0].lat, 36.203);
+  assert.equal(mapAfterLegacyTracking.buses[0].lng, 37.103);
 });
